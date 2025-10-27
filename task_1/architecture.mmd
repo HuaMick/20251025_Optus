@@ -1,0 +1,70 @@
+---
+id: baf09e8b-5fee-4573-940e-ec25d54169dc
+---
+
+graph TB
+    %% Simplified Telecom Network Event Pipeline
+    %% GCP-based real-time streaming data pipeline
+
+    T["Cell Towers<br/>"]
+    BQ_DW["BigQuery: Existing Datawarehouse<br/>Dimension & fact lookup"]
+    CONSUMERS["Data Consumers<br/>Analysts & dashboards"]
+
+    subgraph composer["GCP Cloud Composer"]
+        CR["Cloud Run API Gateway<br/>Schema normalization & validation<br/><i>⚡ Auto-scales per request</i>"]
+        PS_RAW["Pub/Sub: raw-events<br/><i>🛡️ Message durability & buffering</i>"]
+        PS_INVALID["Pub/Sub: invalid-events"]
+        DF["Dataflow (Apache Beam)<br/>Dedup, validate, geo-enrich<br/><i>⚡ Auto-scales workers</i>"]
+        BQ_DATA["BigQuery: network_events<br/>Production data warehouse<br/><i>⚡ Partitioning and clustering</i>"]
+        BQ_TEST["BigQuery: network_events_test<br/>Test data warehouse"]
+        BQ_METRICS["BigQuery: pipeline_metrics<br/>Monitoring analytics"]
+        GCS_INGESTION["GCS: Ingestion archive<br/>Long-term storage"]
+        GCS_RAW["GCS: Raw events archive<br/><i>🛡️ Reprocessing capability</i>"]
+        GCS_INVALID["GCS: Invalid events sink"]
+        CM["Cloud Monitoring<br/>Metrics & alerts<br/><i>📊 Production monitoring</i>"]
+        DASH["Monitoring Dashboard"]
+    end
+
+    %% ===== DATA FLOW =====
+    T -->|HTTPS/mTLS| CR
+    CR --> GCS_INGESTION
+    CR -->|Valid| PS_RAW
+    CR -->|Invalid| PS_INVALID
+    PS_RAW --> DF
+    PS_RAW --> GCS_RAW
+    BQ_DW -->|Lookup| DF
+    DF -->|Valid - Production| BQ_DATA
+    DF -->|Valid - Test| BQ_TEST
+    DF -->|Invalid| PS_INVALID
+    PS_INVALID --> GCS_INVALID
+    GCS_RAW -.->|Reprocess if needed| PS_RAW
+
+    %% Monitoring flow
+    CR & DF & BQ_DATA --> CM
+    GCS_INVALID --> BQ_METRICS
+    CM -->|Metric export| BQ_METRICS
+    BQ_METRICS --> DASH
+
+    %% Consumer flow
+    BQ_DATA --> CONSUMERS
+
+    %% ===== TESTING =====
+    TEST_DATA["Test event samples<br/>GCS bucket"]
+    CICD["<b>CI/CD TESTING (Cloud Build)</b><br/>• Inject test data → Cloud Run<br/>• Validate E2E pipeline<br/>• Assert expected results in BigQuery"]
+
+    TEST_DATA -.-> CICD
+    CICD -.-> CR
+    CICD -.-> BQ_TEST
+
+    %% ===== STYLING =====
+    classDef gcp fill:#4285F4,stroke:#1967D2,color:#fff
+    classDef storage fill:#34A853,stroke:#137333,color:#fff
+    classDef monitoring fill:#FBBC04,stroke:#E37400,color:#000
+    classDef consumer fill:#9AA0A6,stroke:#5F6368,color:#fff
+    classDef callout fill:#FFF,stroke:#666,stroke-width:2px,color:#000
+
+    class CR,DF,PS_RAW,PS_INVALID gcp
+    class BQ_DATA,BQ_TEST,BQ_METRICS,BQ_DW,GCS_INGESTION,GCS_RAW,GCS_INVALID,TEST_DATA storage
+    class CM,DASH monitoring
+    class CONSUMERS consumer
+    class CICD callout
